@@ -52,6 +52,7 @@ export type EmuStatus = {
 
 export type EmuStandalone = {
   key: string; name: string; installed: boolean; executable: string;
+  default?: boolean;
   // Lowercase tokens matched against a game's platform name and slug.
   platforms: string[];
 };
@@ -231,7 +232,8 @@ export function standaloneFor(status: EmuStatus | null,
   if (!status?.standalone?.length) return null;
   const hay = `${platform || ''} ${slug || ''}`.toLowerCase();
   if (!hay.trim()) return null;
-  return status.standalone.find((s) => s.platforms.some((p) => hay.includes(p))) || null;
+  return status.standalone.find((s) => s.default !== false
+    && s.platforms.some((p) => hay.includes(p))) || null;
 }
 
 // ─── Per-platform sync ───────────────────────────────────────────────────────

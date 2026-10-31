@@ -275,15 +275,15 @@ export function PlatformIcon({ slug, fsSlug, size, onTone }: { slug?: string | n
 // `armed` inverts the danger combination — the tinted-background/red-text row
 // becomes a solid red fill with light text, so a half-pressed destructive row
 // reads as live at a glance rather than as another idle menu entry.
-export function UserMenuRow({ icon, label, danger, armed, disabled, onSelect }:
-  { icon: any; label: string; danger?: boolean; armed?: boolean; disabled?: boolean; onSelect: () => void }) {
+export function UserMenuRow({ icon, label, danger, armed, disabled, onSelect, focusRef }:
+  { icon: any; label: string; danger?: boolean; armed?: boolean; disabled?: boolean; onSelect: () => void; focusRef?: Ref<any> }) {
   const [hot, setHot] = useState(false);
   const fg = disabled ? V2.fgFaint : (armed ? '#fff' : (danger ? V2.danger : V2.fg));
   const bg = armed
     ? (hot ? '#ff6a6a' : V2.danger)
     : ((hot && !disabled) ? (danger ? 'rgba(255,80,80,0.12)' : V2.surfaceHover) : 'transparent');
   return (
-    <Focusable noFocusRing onActivate={() => !disabled && onSelect()} onClick={() => !disabled && onSelect()}
+    <Focusable ref={focusRef} noFocusRing onActivate={() => !disabled && onSelect()} onClick={() => !disabled && onSelect()}
       onFocus={() => setHot(true)} onBlur={() => setHot(false)}
       onMouseEnter={() => setHot(true)} onMouseLeave={() => setHot(false)}
       style={{
@@ -594,11 +594,18 @@ export function GameActionButton({ icon, label, onClick, variant = 'surface', ac
 // Steam DialogInput styling and apply the V2 theme. Wrapped in Focusable for
 // gamepad navigation; onActivate focuses the inner input to trigger keyboard.
 export const V2SearchField = forwardRef(function V2SearchField(
-  { value, onChange }: { value: string; onChange: (v: string) => void },
+  { value, onChange, deferInput = false }: { value: string; onChange: (v: string) => void; deferInput?: boolean },
   fwdRef: Ref<any>,
 ) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
+  const [inputEnabled, setInputEnabled] = useState(!deferInput);
+  const activationPending = useRef(false);
+  useEffect(() => {
+    if (!inputEnabled || !activationPending.current) return;
+    activationPending.current = false;
+    wrapperRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+  }, [inputEnabled]);
 
   return (
     <Focusable
@@ -609,9 +616,12 @@ export const V2SearchField = forwardRef(function V2SearchField(
       }}
       noFocusRing
       onActivate={() => {
-        const input = wrapperRef.current?.querySelector('input');
-        if (input) input.focus();
-        _summonVirtualKeyboard();
+        if (!inputEnabled) {
+          activationPending.current = true;
+          setInputEnabled(true);
+          return;
+        }
+        wrapperRef.current?.querySelector<HTMLInputElement>("input")?.focus();
       }}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onMouseEnter={() => setFocused(true)} onMouseLeave={() => setFocused(false)}
@@ -647,10 +657,10 @@ export const V2SearchField = forwardRef(function V2SearchField(
           onFocusCapture={() => setFocused(true)}
           onBlurCapture={() => setFocused(false)}
         >
-          <TextField
+          {inputEnabled ? <TextField
             value={value}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-          />
+          /> : <span style={{ padding: '0 10px', color: V2.fgMuted, fontSize: '14px' }}>Search cores...</span>}
         </div>
         {value && (
           <div onClick={() => onChange('')}

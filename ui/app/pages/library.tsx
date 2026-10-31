@@ -54,11 +54,11 @@ function GamesGridSkeleton() {
         @keyframes rommSkelIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+        display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start',
         gap: '18px 16px', padding: '16px 16px 0',
       }}>
         {Array.from({ length: 18 }).map((_, i) => (
-          <div key={i}>
+          <div key={i} style={{ width: '132px', flexShrink: 0 }}>
             <Shimmer style={{ width: '100%', aspectRatio: '3 / 4', borderRadius: V2.radiusArt }} />
             <Shimmer style={{ width: `${55 + ((i * 41) % 40)}%`, height: '9px', marginTop: '8px', borderRadius: '4px' }} />
           </div>
@@ -81,11 +81,11 @@ function GroupGridSkeleton() {
         <Shimmer style={{ width: '92px', height: '10px', borderRadius: '4px' }} />
       </div>
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+        display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start',
         gap: '18px 16px', padding: '0 16px 8px',
       }}>
         {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i}>
+          <div key={i} style={{ width: '132px', flexShrink: 0 }}>
             <Shimmer style={{ width: '100%', aspectRatio: '3 / 4', borderRadius: V2.radiusArt }} />
             <Shimmer style={{ width: `${55 + ((i * 41) % 40)}%`, height: '9px', marginTop: '8px', borderRadius: '4px' }} />
           </div>
@@ -374,12 +374,12 @@ export function SearchPanel({ onOpen, onBg, visible }: { onOpen: (g: LibGame) =>
         // Results present: keep the grid mounted even while a refined query is
         // in flight, so typing another letter doesn't flash "Searching…".
         <Focusable noFocusRing {...NAV_MAINTAIN_X} style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+          display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start',
           gap: '18px 16px', padding: '6px 0',
         }}>
           {gridTiles}
           {visN < results.length && (
-            <div ref={sentinelRef} style={{ gridColumn: '1 / -1', height: '1px' }} />
+            <div ref={sentinelRef} style={{ flex: '0 0 100%', height: '1px' }} />
           )}
         </Focusable>
       )}
@@ -799,13 +799,10 @@ export function HomePanel({ onOpen, onOpenGroup, onBg, visible }:
       {continuePlaying.length > 0 && (
         <CardRow icon={<FaPlay size={14} />} title="Continue playing" count={continuePlaying.length}>
           {continuePlaying.map((g, i) => (
-            // Screenshot cards size to their natural (landscape) width; games
-            // with no screenshot fall back to the portrait 132px cover.
+            // The tile owns its width: screenshots and box art both follow
+            // their natural ratio at the fixed cover height.
             <div key={g.rom_id} style={{
               flexShrink: 0,
-              // In resume mode the tile owns its width — a state screenshot can
-              // turn a portrait card landscape after this wrapper is laid out.
-              ...(resumeStates || g.screenshot ? {} : { width: '132px' }),
             }}>
               <GameTile game={g} onOpen={onOpen} onActiveCover={onBg} resume={resumeStates}
                 // thumbTick is what re-reads the module-level map once the batch
@@ -833,7 +830,7 @@ export function HomePanel({ onOpen, onOpenGroup, onBg, visible }:
       {downloaded.length > 0 && (
         <CardRow icon={<FaDownload size={14} />} title="Recently Downloaded" count={downloaded.length}>
           {downloaded.map((g, i) => (
-            <div key={g.rom_id} style={{ width: '132px', flexShrink: 0 }}>
+            <div key={g.rom_id} style={{ flexShrink: 0 }}>
               <GameTile game={g} onOpen={onOpen} onActiveCover={onBg}
                 focusRef={firstList === 'dl' && i === 0 ? firstRef : undefined} focusable={visible} />
             </div>
@@ -845,7 +842,7 @@ export function HomePanel({ onOpen, onOpenGroup, onBg, visible }:
       {recent.length > 0 && (
         <CardRow icon={<FaRegClock size={16} />} title="Recently added" count={recent.length}>
           {recent.map((g, i) => (
-            <div key={g.rom_id} style={{ width: '132px', flexShrink: 0 }}>
+            <div key={g.rom_id} style={{ flexShrink: 0 }}>
               <GameTile game={g} onOpen={onOpen} onActiveCover={onBg}
                 focusRef={firstList === 'rc' && i === 0 ? firstRef : undefined} focusable={visible} />
             </div>
@@ -2588,13 +2585,13 @@ export function LibraryGamesPage() {
           key={`${group.key}:${reloadTick}`}
           className={`romm-games-grid ${slideDir === 1 ? 'lib-slide-r' : 'lib-slide-l'}`}
           style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+            display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start',
             gap: '18px 16px', padding: '16px 16px 0',
           }}
         >
           {gridTiles}
           {visN < games.length && (
-            <div ref={sentinelRef} style={{ gridColumn: '1 / -1', height: '1px' }} />
+            <div ref={sentinelRef} style={{ flex: '0 0 100%', height: '1px' }} />
           )}
         </Focusable>
       )}

@@ -1593,6 +1593,7 @@ export function GameDetailPage() {
   const [discs, setDiscs] = useState<LocalDisc[]>([]);
   const [discLast, setDiscLast] = useState<string>('');
   const [bgUri, setBgUri] = useState<string | null>(null);
+  const [coverRatio, setCoverRatio] = useState(3 / 4);
   const [tab, setTab] = useState('overview');
   const [playTime, setPlayTime] = useState<any>(null);
   useEffect(() => {
@@ -1633,6 +1634,7 @@ export function GameDetailPage() {
 
   // Bumped after a metadata refresh so the cover remounts and refetches.
   const [coverGen, setCoverGen] = useState(0);
+  useEffect(() => { setCoverRatio(3 / 4); }, [game?.rom_id, coverGen]);
   const refreshMeta = async () => {
     if (!game) return;
     const rid = game.rom_id;
@@ -1966,9 +1968,12 @@ export function GameDetailPage() {
       <Focusable noFocusRing flow-children="horizontal" style={{ display: 'flex', gap: '22px', alignItems: 'flex-start' }}>
         {/* Cover */}
         <div style={{ flex: '0 0 220px', maxWidth: '220px' }}>
-          <div style={{ boxShadow: V2.elev2, borderRadius: V2.radiusLg, overflow: 'hidden' }}>
+          <div style={{
+            width: '100%', aspectRatio: String(coverRatio),
+            boxShadow: V2.elev2, borderRadius: V2.radiusLg, overflow: 'hidden',
+          }}>
             <GameCover key={coverGen} romId={game.rom_id} hasCover={game.has_cover || !!detail?.has_cover} large
-              radius={V2.radiusLg} onLoaded={setBgUri} />
+              radius={V2.radiusLg} onLoaded={setBgUri} onRatio={setCoverRatio} />
           </div>
         </div>
 

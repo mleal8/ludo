@@ -305,6 +305,11 @@ export const GameTile = memo(function GameTile({ game, onOpen, onActiveCover, fo
   // Wide cards adopt the screenshot's NATURAL aspect ratio (RomM derives the
   // card width from the cover's true shape at a fixed height); 16:9 until loaded.
   const [shotRatio, setShotRatio] = useState(16 / 9);
+  // Box art is not uniformly portrait: RomM keeps its source image shape and
+  // derives the card width from that ratio at the same fixed cover height.
+  const [coverRatio, setCoverRatio] = useState(3 / 4);
+  const cardRatio = wide ? shotRatio : coverRatio;
+  const cardWidth = Math.round(176 * cardRatio);
   const uriRef = useRef<string | null>(null);
   const [focused, setFocused] = useState(false);
   const [iconDark, setIconDark] = useState(false);
@@ -698,17 +703,11 @@ export const GameTile = memo(function GameTile({ game, onOpen, onActiveCover, fo
       onMouseLeave={() => setFocused(false)}
       style={{
         cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '7px',
-        // Resume tiles size themselves: the row can't know in advance whether a
-        // state screenshot will arrive and turn a portrait card landscape, so
-        // the portrait width lives here rather than on the row's wrapper.
-        ...(resume && !wide ? { width: '132px' } : {}),
+        width: `${cardWidth}px`, flexShrink: 0,
       }}
     >
       <div className="romm-gt-cover" style={{
-        position: 'relative', overflow: 'hidden',
-        // Wide (continue-playing) cards are a fixed-height 16:9 screenshot with
-        // natural width; portrait cards keep the cover's 3:4 footprint.
-        ...(wide ? { height: '176px', aspectRatio: String(shotRatio) } : {}),
+        position: 'relative', width: '100%', height: '176px', aspectRatio: String(cardRatio), overflow: 'hidden',
         transform: 'scale(1)',
         transition: 'transform 0.18s ease, box-shadow 0.18s ease',
         borderRadius: V2.radiusArt,
@@ -723,7 +722,7 @@ export const GameTile = memo(function GameTile({ game, onOpen, onActiveCover, fo
           </>
         ) : (
           <GameCover romId={game.rom_id} hasCover={game.has_cover}
-            onLoaded={(u) => { uriRef.current = u; }} />
+            onLoaded={(u) => { uriRef.current = u; }} onRatio={setCoverRatio} />
         )}
         {/* Platform icon badge — top-right circular scrim with the real RomM
             platform icon (RomM GameCard .r-gc__platform-icon: 7px inset, 3px

@@ -277,8 +277,8 @@ export function V2Bg({ uri }: { uri: string | null }) {
 // Lazy, cached cover art. Renders a placeholder until the base64 data URI
 // arrives from the backend (the frontend <img> can't auth to RomM directly).
 // `onLoaded` bubbles the URI up so a tile can feed the blurred background art.
-export function GameCover({ romId, hasCover, large = false, radius = V2.radiusArt, onLoaded }:
-  { romId: number; hasCover: boolean; large?: boolean; radius?: string; onLoaded?: (uri: string | null) => void }) {
+export function GameCover({ romId, hasCover, large = false, radius = V2.radiusArt, onLoaded, onRatio }:
+  { romId: number; hasCover: boolean; large?: boolean; radius?: string; onLoaded?: (uri: string | null) => void; onRatio?: (ratio: number) => void }) {
   const ck = `cover:${romId}:${large}`;
   const peek = peekCover(ck);
   const [uri, setUri] = useState<string | null>(peek ?? null);
@@ -313,12 +313,15 @@ export function GameCover({ romId, hasCover, large = false, radius = V2.radiusAr
   }, [romId, large]);
   return (
     <div style={{
-      position: 'relative', width: '100%', aspectRatio: '3 / 4',
+      position: 'relative', width: '100%', height: '100%', aspectRatio: '3 / 4',
       background: V2.coverPlaceholder, borderRadius: radius, overflow: 'hidden',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
       {uri ? (
-        <img src={uri} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        <img src={uri} onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth && img.naturalHeight) onRatio?.(img.naturalWidth / img.naturalHeight);
+        }} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
       ) : (
         <span style={{ color: V2.fgMuted, fontSize: '11px' }}>{done ? 'No cover' : '…'}</span>
       )}

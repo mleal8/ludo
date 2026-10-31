@@ -74,6 +74,7 @@ try:
         platform_folder_candidates,
         flatpak_app_installed,
         STANDALONE_EMULATORS, find_standalone_builds,
+        find_standalone_executable, standalone_emulators_for_platform,
         _extract_archive, _archive_member_names, WIIU_SLUGS, resolve_wiiu_rom,
         get_desktop_tile_status, add_desktop_tile, remove_desktop_tile,
         drain_notifications as _drain_notifications,
@@ -5071,11 +5072,20 @@ class LudoBackend:
                 # A platform served by a standalone emulator (Switch -> Eden)
                 # has no libretro core by design; reporting "no core" for it
                 # made a working Eden look undetected (rommapp/ludo#39).
-                standalone = ra.standalone_emulator_status(label, slug)
+                emulator_override = ra.get_platform_emulator_override(slug)
+                standalone = ra.selected_standalone_emulator_status(label, slug)
+                auto_standalone = ra.standalone_emulator_status(label, slug)
+                info['auto_standalone'] = auto_standalone or None
                 if standalone:
                     info['standalone'] = standalone
                     info['resolved_core'] = standalone['name'] if standalone['installed'] else ''
                     info['source'] = 'standalone' if standalone['installed'] else 'none'
+                info['emulator_override'] = emulator_override
+                info['standalone_options'] = [
+                    {'key': key, 'name': spec['name'],
+                     'installed': bool(find_standalone_executable(
+                         key, spec, ra.settings))}
+                    for key, spec in standalone_emulators_for_platform(label, slug)]
                 rows.append(info)
             rows.sort(key=lambda r: (r['platform_name'] or '').lower())
             support = ra.core_download_support()
@@ -5151,6 +5161,24 @@ class LudoBackend:
             return {'success': True, 'mapping': info}
         except Exception as e:
             logging.error(f"set_core_override error: {e}", exc_info=True)
+            return {'success': False, 'message': str(e)}
+
+    async def set_platform_emulator_override(self, slug: str, emulator: str = ''):
+        """Select Auto, RetroArch, or a compatible standalone emulator for a system."""
+        try:
+            ra = self._retroarch
+            if not ra:
+                return {'success': False, 'message': 'Emulator settings unavailable'}
+            if emulator and emulator != 'retroarch':
+                if emulator not in STANDALONE_EMULATORS:
+                    return {'success': False, 'message': 'Unknown emulator'}
+                compatible = {key for key, _ in standalone_emulators_for_platform(slug, slug)}
+                if emulator not in compatible:
+                    return {'success': False, 'message': 'Emulator does not support this system'}
+            ra.set_platform_emulator_override(slug, emulator or '')
+            return {'success': True}
+        except Exception as e:
+            logging.error(f"set_platform_emulator_override error: {e}", exc_info=True)
             return {'success': False, 'message': str(e)}
 
     # -----------------------------------------------------------------------
@@ -11104,7 +11132,7 @@ class LudoBackend:
             # missing, so the picker (and the core downloader behind it) is the
             # wrong answer for them: it would offer downloads that cannot help.
             # A missing standalone emulator surfaces as a plain launch error.
-            if ra.standalone_emulator_status(platform_name, slug):
+            if ra.selected_standalone_emulator_status(platform_name, slug):
                 return {}
             info = ra.describe_core_resolution(platform_name, system_slug=slug)
             if info.get('resolved_core'):
@@ -11459,11 +11487,15 @@ class LudoBackend:
             ra = self._retroarch
             if not ra or not platform_name:
                 return {}
+            slug = (game.get('platform_slug')
+                    or (game.get('romm_data') or {}).get('platform_slug') or '')
+            if ra.selected_standalone_emulator_status(platform_name, slug):
+                # Standalone BIOS locations/requirements do not follow the
+                # RetroArch core .info convention used by this advisory.
+                return {}
             sysdir = self._bios_dir()
             if not sysdir:
                 return {}          # can't tell where BIOS lives; stay quiet
-            slug = (game.get('platform_slug')
-                    or (game.get('romm_data') or {}).get('platform_slug') or '')
             core = ra.describe_core_resolution(
                 platform_name, system_slug=slug or None).get('resolved_core')
             if not core:

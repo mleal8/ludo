@@ -82,6 +82,7 @@ export const getSteamTileStatus = callable<[], any>("get_steam_tile_status");
 export const setSteamTile = callable<[boolean, string, string, string], any>("set_steam_tile");
 export const getCoreMappings = callable<[], any>("get_core_mappings");
 export const setCoreOverride = callable<[string, string], any>("set_core_override");
+export const setPlatformEmulatorOverride = callable<[string, string], any>("set_platform_emulator_override");
 export const downloadCore = callable<[string], any>("download_core");
 export const getEmulatorStatus = callable<[boolean?], any>("get_emulator_status");
 export const repairEmulatorPaths = callable<[string[]?], any>("repair_emulator_paths");

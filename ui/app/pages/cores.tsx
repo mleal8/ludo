@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { _forceGamepadFocus } from "../shell";
-import { downloadCore, getCoreMappings, getDownloadableCores, setCoreOverride } from "../rpc";
+import { _forceGamepadFocus, _dismissVirtualKeyboard } from "../shell";
+import { downloadCore, getCoreMappings, getDownloadableCores, setCoreOverride, setPlatformEmulatorOverride } from "../rpc";
 import { GameActionButton, PlatformIcon, UserMenuRow, V2SearchField, V2SettingsRow, V2SettingsSection, MODAL_SCRIM_INSET} from "../kit";
 import { FaCheck, FaChevronLeft, FaChevronRight, FaDownload, FaLayerGroup, FaPuzzlePiece, FaUndo, FaGamepad, FaInfoCircle, FaSync} from "react-icons/fa";
 import { Focusable, ModalRoot, showModal } from "@ludo/host";
@@ -18,13 +18,14 @@ import { EmuStatus, installSize, loadEmulatorStatus, startEmulatorInstall, useEm
 // Glassy core picker (RomM v2 chrome, like the account/collection menus).
 // Lists "Auto" + every installed core, with RetroDECK's choices surfaced first
 // and the current selection check-marked. closeModal is injected by showModal.
-export function CorePickerModal({ row, availableCores, canDownload, noDownloadReason, noDownloadKind, onPick, onDownload, closeModal }: {
+export function CorePickerModal({ row, availableCores, canDownload, noDownloadReason, noDownloadKind, onPick, onEmulatorPick, onDownload, closeModal }: {
   row: any; availableCores: string[]; canDownload: boolean;
   noDownloadReason?: string; noDownloadKind?: string;
-  onPick: (core: string) => void;
+  onPick: (core: string) => void | Promise<void>;
+  onEmulatorPick?: (emulator: string) => void | Promise<void>;
   onDownload: (core: string) => void; closeModal?: () => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const autoRowRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   // Cores the buildbot can supply for this platform that aren't installed. The
   // full buildbot catalogue (~200 cores) is only pulled in once you search, so
@@ -39,7 +40,16 @@ export function CorePickerModal({ row, availableCores, canDownload, noDownloadRe
     || (row?.retrodeck_choices || []).filter((c: string) => availableCores.includes(c)));
   const relevantSet = new Set<string>(relevant);
   const [showAll, setShowAll] = useState(false);
-  useEffect(() => { const t = setTimeout(() => { if (panelRef.current) _forceGamepadFocus(panelRef.current); }, 60); return () => clearTimeout(t); }, []);
+  // Start on Auto, not the search field. Focusing the text field on Steam Deck
+  // summons the virtual keyboard, including when the user returns from a core
+  // chooser. The search remains one press up and opens the keyboard on demand.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (autoRowRef.current) _forceGamepadFocus(autoRowRef.current);
+      _dismissVirtualKeyboard();
+    }, 60);
+    return () => clearTimeout(t);
+  }, []);
 
   const q = query.trim().toLowerCase();
   const match = (c: string) => !q || c.toLowerCase().includes(q);
@@ -49,8 +59,18 @@ export function CorePickerModal({ row, availableCores, canDownload, noDownloadRe
   // find any core by typing without toggling "show all" first.
   const others = (showAll || q) ? availableCores.filter((c) => !relevantSet.has(c) && match(c)) : [];
   const current = row?.override || '';
+  const emulatorOverride = row?.emulator_override || '';
+  const retroArchActive = emulatorOverride === 'retroarch'
+    || (!emulatorOverride && row?.source !== 'standalone');
+  const autoDefault = row?.auto_standalone?.name
+    ? `${row.auto_standalone.name} · standalone`
+    : row?.auto_core ? `RetroArch · ${row.auto_core}` : 'no emulator found';
 
-  const pick = (core: string) => { closeModal?.(); onPick(core); };
+  const pick = async (core: string) => {
+    closeModal?.();
+    if (core) await onEmulatorPick?.('retroarch');
+    await onPick(core);
+  };
   const grab = (core: string) => { closeModal?.(); onDownload(core); };
 
   // Suggested downloads for this platform, plus — once you type — anything else
@@ -70,7 +90,7 @@ export function CorePickerModal({ row, availableCores, canDownload, noDownloadRe
 
   const coreRow = (core: string) => (
     <UserMenuRow key={core}
-      icon={current === core ? <FaCheck size={13} /> : <FaPuzzlePiece size={13} />}
+      icon={retroArchActive && current === core ? <FaCheck size={13} /> : <FaPuzzlePiece size={13} />}
       label={core + (row?.retrodeck_default === core ? '  · RetroDECK default' : (rdSet.has(core) ? '  · RetroDECK' : ''))}
       onSelect={() => pick(core)} />
   );
@@ -91,7 +111,7 @@ export function CorePickerModal({ row, availableCores, canDownload, noDownloadRe
         <style>{`${V2_FOCUS_STYLE}
           @keyframes umIn { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }`}</style>
         <div onClick={() => closeModal?.()} style={{ position: 'absolute', inset: 0 }} />
-        <Focusable noFocusRing autoFocus ref={panelRef} flow-children="vertical" style={{
+        <Focusable noFocusRing flow-children="vertical" style={{
           position: 'relative', width: '340px', maxWidth: '92vw', boxSizing: 'border-box',
           fontFamily: V2.font, color: V2.fg, padding: '8px',
           display: 'flex', flexDirection: 'column',
@@ -104,19 +124,40 @@ export function CorePickerModal({ row, availableCores, canDownload, noDownloadRe
           <div style={{
             fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
             color: V2.fgMuted, padding: '6px 8px 10px',
-          }}>Core · {row?.platform_name || ''}</div>
+          }}>Emulator · {row?.platform_name || ''}</div>
           <div style={{ padding: '0 4px 8px' }}>
-            <V2SearchField value={query} onChange={setQuery} />
+            <V2SearchField value={query} onChange={setQuery} deferInput />
           </div>
           <div style={{ height: '1px', background: V2.border, margin: '0 4px 4px' }} />
+          <div style={{
+            fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: V2.fgMuted, padding: '2px 8px 4px',
+          }}>Choose emulator</div>
           {/* Auto reverts to RetroDECK's choice / our guess. */}
           {match('auto') && (
             <UserMenuRow
-              icon={!current ? <FaCheck size={13} /> : <FaUndo size={13} />}
-              label={`Auto${row?.retrodeck_default ? `  ·  ${row.retrodeck_default}` : (row?.resolved_core ? `  ·  ${row.resolved_core}` : '')}`}
-              onSelect={() => pick('')} />
+              focusRef={autoRowRef}
+              icon={!current && !emulatorOverride ? <FaCheck size={13} /> : <FaUndo size={13} />}
+              label={`Auto  ·  ${autoDefault}`}
+              onSelect={async () => {
+                closeModal?.();
+                await onEmulatorPick?.('');
+                await onPick('');
+              }} />
           )}
-          {rdOrdered.length > 0 && <div style={{ height: '1px', background: V2.border, margin: '4px 4px' }} />}
+          {!!row?.standalone_options?.length && row.standalone_options.filter((e: any) => e.installed).map((e: any) => (
+              <UserMenuRow key={e.key}
+                icon={emulatorOverride === e.key ? <FaCheck size={13} /> : <FaGamepad size={13} />}
+                label={`${e.name} · standalone`}
+                onSelect={() => { closeModal?.(); onEmulatorPick?.(e.key); }} />
+            ))}
+          {(rdOrdered.length > 0 || others.length > 0) && <>
+            <div style={{ height: '1px', background: V2.border, margin: '4px 4px' }} />
+            <div style={{
+              fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+              color: V2.fgMuted, padding: '6px 8px 4px',
+            }}>RetroArch cores</div>
+          </>}
           {rdOrdered.map(coreRow)}
           {/* No installed core runs this platform — say so instead of leaving a
               bare "Auto" that resolves to nothing. */}
@@ -268,6 +309,7 @@ export function CoresPage() {
       const r = await setCoreOverride(slug, core);
       if (r?.success && r.mapping) {
         setRows((prev) => prev.map((x) => x.slug === slug ? { ...r.mapping } : x));
+        await load();
       }
     } catch { toaster.toast({ title: 'Core override', body: 'Could not save change' }); }
   };
@@ -282,6 +324,7 @@ export function CoresPage() {
       const r = await downloadCore(core);
       if (r?.success) {
         toaster.toast({ title: 'Emulator core', body: `${core} installed` });
+        await setPlatformEmulatorOverride(row.slug, 'retroarch');
         await apply(row.slug, core);
         await load();   // the installed-core list grew
       } else {
@@ -296,6 +339,13 @@ export function CoresPage() {
     showModal(<CorePickerModal row={row} availableCores={cores} canDownload={canDownload}
       noDownloadReason={noDownloadReason} noDownloadKind={noDownloadKind}
       onPick={(c) => apply(row.slug, c)}
+      onEmulatorPick={async (choice) => {
+        try {
+          const r = await setPlatformEmulatorOverride(row.slug, choice || '');
+          if (r?.success) await load();
+          else toaster.toast({ title: 'Emulator choice', body: r?.message || 'Could not save change' });
+        } catch { toaster.toast({ title: 'Emulator choice', body: 'Could not save change' }); }
+      }}
       onDownload={(c) => install(row, c)} />);
 
   const badge = (row: any) => {
@@ -331,7 +381,7 @@ export function CoresPage() {
       {/* Nothing installed: the per-platform list would be a wall of "no core"
           rows that can't be resolved, so it collapses to the install prompt. */}
       {emu && !emu.installed ? <NoEmulatorSection status={emu} /> : (
-      <V2SettingsSection title="Per-platform core">
+      <V2SettingsSection title="Per-system emulator">
         {loading ? (
           <V2SettingsRow icon={<FaPuzzlePiece size={16} />} title="Loading cores…" />
         ) : rows.length === 0 ? (
@@ -345,6 +395,8 @@ export function CoresPage() {
             title={row.platform_name}
             subtitle={busy === row.slug
               ? 'Downloading core…'
+              : row.emulator_override === 'retroarch'
+                ? 'RetroArch selected — A to choose its core'
               : row.standalone
                 ? (row.standalone.installed
                   ? `${row.standalone.name} runs this platform on its own — no core needed`
@@ -358,7 +410,7 @@ export function CoresPage() {
                 : row.source === 'override'
                   ? 'Pinned by you — A to change or reset to auto'
                   : 'Auto-resolved — A to pin a specific core'}
-            onClick={() => { if (!row.standalone) openPicker(row); }}
+            onClick={() => openPicker(row)}
             right={badge(row)} />
         ))}
       </V2SettingsSection>

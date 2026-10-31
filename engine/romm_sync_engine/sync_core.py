@@ -1260,6 +1260,7 @@ def _is_own_appimage(name):
 STANDALONE_EMULATORS = {
     'eden': {
         'name': 'Eden',
+        'default': True,
         'platforms': ('nintendo switch', 'switch'),
         'flatpak_id': 'dev.eden_emu.eden',
         # Gear Lever installs land in ~/AppImages as a lowercase 'eden.appimage',
@@ -1269,6 +1270,7 @@ STANDALONE_EMULATORS = {
     },
     'cemu': {
         'name': 'Cemu',
+        'default': True,
         # "wii u" before anything shorter: the plain Wii is a Dolphin platform
         # and must never land here. A RomM slug is 'wiiu'; names vary.
         'platforms': ('wii u', 'wiiu', 'wii-u'),
@@ -1280,6 +1282,27 @@ STANDALONE_EMULATORS = {
         # A decrypted title is a folder (code/ content/ meta/), not a file.
         'resolve_rom': 'wiiu',
         'prelaunch': 'cemu_audio_repair',
+    },
+    'pcsx2': {
+        'name': 'PCSX2',
+        'platforms': ('playstation 2', 'ps2'),
+        'flatpak_id': 'net.pcsx2.PCSX2',
+        'binaries': ('pcsx2-qt', 'pcsx2'),
+        'args': ('-fullscreen', '{rom}'),
+    },
+    'dolphin': {
+        'name': 'Dolphin',
+        'platforms': ('gamecube', 'nintendo gamecube', 'ngc', 'gc', 'wii'),
+        'flatpak_id': 'org.DolphinEmu.dolphin-emu',
+        'binaries': ('dolphin-emu', 'dolphin'),
+        'args': ('-b', '-e', '{rom}'),
+    },
+    'duckstation': {
+        'name': 'DuckStation',
+        # Do not use bare "playstation": it would also match PlayStation 2.
+        'platforms': ('playstation 1', 'psx', 'ps1'),
+        'binaries': ('duckstation-qt', 'duckstation'),
+        'args': ('-fullscreen', '{rom}'),
     },
 }
 
@@ -1664,10 +1687,35 @@ def standalone_emulator_for_platform(platform_name, platform_slug=None):
     if not haystack.strip():
         return None
     for key, spec in STANDALONE_EMULATORS.items():
+        # Only these original mappings are automatic defaults. Newly supported
+        # standalone emulators are opt-in so existing core and save behavior
+        # remains unchanged until a user selects one for the system.
+        if not spec.get('default'):
+            continue
         for token in spec['platforms']:
             if token in haystack:
                 return key, spec
     return None
+
+
+def standalone_emulators_for_platform(platform_name, platform_slug=None):
+    """All standalone choices compatible with a platform, including opt-ins."""
+    haystack = ' '.join(str(x or '').lower() for x in (platform_name, platform_slug))
+    if not haystack.strip():
+        return []
+    out = []
+    for key, spec in STANDALONE_EMULATORS.items():
+        # "wii" is a substring of "wii u" and "wiiu"; Wii U belongs to Cemu.
+        if key == 'dolphin' and any(t in haystack for t in ('wii u', 'wiiu', 'wii-u')):
+            continue
+        if any(
+            (str(value or '').strip().lower() == token if token == 'gc'
+             else token in haystack)
+            for token in spec['platforms']
+            for value in (platform_name, platform_slug)
+        ):
+            out.append((key, spec))
+    return out
 
 
 def detect_retrodeck():
@@ -7433,7 +7481,7 @@ class RetroArchInterface:
             overlay['_overlay_preload'] = preload_paths
         return overlay
 
-    def _focus_window_after_launch(self, proc, match='retroarch'):
+    def _focus_window_after_launch(self, proc, match='retroarch', app_id=None):
         """Bring the freshly launched emulator window to the foreground.
 
         On a normal desktop compositor (Mutter/KWin on e.g. Bazzite) a newly
@@ -7458,7 +7506,7 @@ class RetroArchInterface:
 
         def _worker():
             try:
-                self._gamescope_set_steam_game(proc, match)
+                self._gamescope_set_steam_game(proc, match, app_id)
             except Exception as exc:
                 logging.info(f"gamescope focus: error {exc}")
 
@@ -7486,7 +7534,7 @@ class RetroArchInterface:
         return bool(os.environ.get('GAMESCOPE_WAYLAND_DISPLAY')
                     or 'gamescope' in os.environ.get('XDG_CURRENT_DESKTOP', '').lower())
 
-    def _gamescope_set_steam_game(self, proc, match):
+    def _gamescope_set_steam_game(self, proc, match, app_id=None):
         """ctypes/libX11 worker: tag the emulator window with STEAM_GAME so
         gamescope focuses it. gamescope runs with --xwayland-count 2, so the
         emulator may land on :0 or :1 — we search every display each poll.
@@ -7637,7 +7685,19 @@ class RetroArchInterface:
                     # with it makes RetroArch the one true window for the focused
                     # game. A synthetic id (e.g. 1) grabs input but Steam refuses
                     # to render its overlay over an untracked appid.
-                    target_appid = original[0] if (original and original[0]) else 1
+                    # Steam normally leaves its active baselayer on the X root,
+                    # but some AppImage launches arrive before that property is
+                    # populated. In that case the SteamAppId we inherited from
+                    # the foreground tracked process is a real gamescope app id;
+                    # synthetic id 1 takes input but has no window to display.
+                    try:
+                        fallback_appid = int(str(app_id).strip())
+                        if not 0 < fallback_appid <= 0xffffffff:
+                            fallback_appid = 0
+                    except (TypeError, ValueError):
+                        fallback_appid = 0
+                    target_appid = (original[0] if (original and original[0])
+                                    else fallback_appid or 1)
 
                     sg = (c_ulong * 1)(target_appid)
                     for win in wins:
@@ -7658,7 +7718,8 @@ class RetroArchInterface:
                     x11.XFlush(dpy)
                     logging.info(
                         f"gamescope focus: tagged {len(wins)} '{match}' window(s) "
-                        f"on {name}; baselayer {original} -> {new_layer}")
+                        f"on {name}; baselayer {original} -> {new_layer} "
+                        f"(SteamAppId fallback={fallback_appid or 'none'})")
 
                     # Hold input focus until the emulator exits, then restore the
                     # original baselayer so the Steam UI regains the gamepad.
@@ -8650,6 +8711,28 @@ class RetroArchInterface:
                 cfg.remove_option(section, system_slug)
                 self.settings.save_settings()
 
+    def get_platform_emulator_override(self, system_slug):
+        """Return a system's explicit standalone key, 'retroarch', or auto."""
+        if not system_slug:
+            return ''
+        try:
+            return (self.settings.get('EmulatorOverrides', system_slug, '') or '').strip()
+        except Exception:
+            return ''
+
+    def set_platform_emulator_override(self, system_slug, emulator):
+        """Pin a system to a standalone emulator or RetroArch; empty means Auto."""
+        if not system_slug:
+            return
+        section = 'EmulatorOverrides'
+        if emulator:
+            self.settings.set(section, system_slug, str(emulator))
+        else:
+            cfg = self.settings.config
+            if section in cfg and system_slug in cfg[section]:
+                cfg.remove_option(section, system_slug)
+                self.settings.save_settings()
+
     def describe_core_resolution(self, platform_name, system_slug=None):
         """Return how the core resolves for a system, for the settings UI:
         {resolved_core, source, override, retrodeck_default, retrodeck_choices}.
@@ -8658,6 +8741,12 @@ class RetroArchInterface:
         override = self.get_core_override(system_slug)
         rd_choices = self._retrodeck_core_map().get(system_slug, []) if system_slug else []
         rd_default = self._retrodeck_core_for_slug(system_slug, available_cores) if system_slug else None
+        # The Auto row needs to describe the choice that will be made AFTER
+        # clearing this system's pinned core. Keep it separate from `resolved`,
+        # which intentionally reflects the current override for status display.
+        auto_core = rd_default
+        if not auto_core:
+            auto_core, _ = self._guess_core_for_platform(platform_name, available_cores)
         if override and override in available_cores:
             resolved, source = override, 'override'
         elif rd_default:
@@ -8676,6 +8765,7 @@ class RetroArchInterface:
             'source': source,
             'override': override,
             'retrodeck_default': rd_default,
+            'auto_core': auto_core,
             'retrodeck_choices': [c for _, c in rd_choices],
             # Every installed core that can actually run this platform — what the
             # picker offers. Without it the picker fell back to "all installed
@@ -8880,6 +8970,24 @@ class RetroArchInterface:
         return {'key': key, 'name': spec['name'], 'executable': exe,
                 'installed': bool(exe)}
 
+    def selected_standalone_emulator_status(self, platform_name, platform_slug=None):
+        """Standalone selected for launch, or the legacy automatic default."""
+        slug = platform_slug or ''
+        choice = self.get_platform_emulator_override(slug)
+        if choice == 'retroarch':
+            return {}
+        choices = standalone_emulators_for_platform(platform_name, slug)
+        if choice:
+            match = next(((key, spec) for key, spec in choices if key == choice), None)
+            if not match:
+                return {'key': choice, 'name': STANDALONE_EMULATORS.get(
+                    choice, {}).get('name', choice), 'executable': '', 'installed': False}
+            key, spec = match
+            exe = find_standalone_executable(key, spec, self.settings)
+            return {'key': key, 'name': spec['name'], 'executable': exe,
+                    'installed': bool(exe)}
+        return self.standalone_emulator_status(platform_name, slug)
+
     def standalone_emulators_status(self):
         """Every standalone emulator Ludo knows about, and whether it's here.
 
@@ -8895,7 +9003,8 @@ class RetroArchInterface:
                 exe = ''
             out.append({'key': key, 'name': spec['name'],
                         'installed': bool(exe), 'executable': exe,
-                        'platforms': list(spec['platforms'])})
+                        'platforms': list(spec['platforms']),
+                        'default': bool(spec.get('default'))})
         return out
 
     def build_standalone_launch_command(self, rom_path, key, spec, executable):
@@ -8931,7 +9040,7 @@ class RetroArchInterface:
         # RetroArch to exist at all: a Switch ROM is playable on a machine that
         # has only Eden installed, and every RetroArch-shaped step below (core
         # resolution, the config overlay, --entryslot) is meaningless for it.
-        standalone = self.standalone_emulator_status(platform_name, platform_slug)
+        standalone = self.selected_standalone_emulator_status(platform_name, platform_slug)
         if standalone:
             if not standalone['installed']:
                 return None, (f"{standalone['name']} is not installed — "
@@ -9491,9 +9600,9 @@ class RetroArchInterface:
     def launch_game(self, rom_path, platform_name=None, core_name=None,
                     entry_slot=None, platform_slug=None):
         """Launch a game in RetroArch (or the platform's standalone emulator)."""
-        standalone = self.standalone_emulator_status(platform_name, platform_slug)
-        # The RetroArch guard is skipped for standalone platforms on purpose:
-        # Eden playing a Switch ROM does not need RetroArch to be installed.
+        standalone = self.selected_standalone_emulator_status(platform_name, platform_slug)
+        # The RetroArch guard is skipped for a selected standalone emulator:
+        # those launches do not require RetroArch to be installed.
         if not standalone and not self.retroarch_executable:
             return False, "RetroArch executable not found"
 
@@ -9515,16 +9624,18 @@ class RetroArchInterface:
             logging.debug(f"ROM path exists: {os.path.exists(rom_path)}")
 
             # Launch RetroArch with debugging (don't capture output to see what happens)
+            env = self._host_subprocess_env()
             result = subprocess.Popen(cmd,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE,
                                     text=True,
-                                    env=self._host_subprocess_env())
+                                    env=env)
 
             # On Steam Deck Gaming Mode (gamescope) the daemon-spawned window
             # won't gain focus on its own; tag it so gamescope shows it.
             self._focus_window_after_launch(
-                result, match=(standalone['key'] if standalone else 'retroarch'))
+                result, match=(standalone['key'] if standalone else 'retroarch'),
+                app_id=env.get('SteamAppId'))
 
             # Wait a moment to see if it fails immediately
             import time
